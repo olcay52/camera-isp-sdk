@@ -1,0 +1,27 @@
+/build/
+__pycache__/
+*.pyc
+
+# Out-of-tree kernel module build products
+sensors/*/driver/*.o
+sensors/*/driver/*.ko
+sensors/*/driver/*.mod
+sensors/*/driver/*.mod.c
+sensors/*/driver/.*.cmd
+sensors/*/driver/Module.symvers
+sensors/*/driver/modules.order
+sensors/*/driver/.module-common.o
+
+# dcc_gen_linux scratch output
+sensors/*/dcc/*/cid*.bin
+
+# Task (taskfile.dev) checksums
+.task/
+
+# Devbox and the Distrobox home of 'task box'; only its dotfiles are tracked
+.devbox
+.distrobox/**
+!.distrobox/.bashrc
+!.distrobox/.bash_aliases
+!.distrobox/.profile
+!.distrobox/.motd

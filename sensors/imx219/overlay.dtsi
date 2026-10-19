@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Sony IMX219 (Raspberry Pi Camera v2). Same node as the kernel's
+ * k3-am67a-t3-gem-o1-csi{0,1}-imx219.dtso, written against the port macros.
+ * Schematics: https://datasheets.raspberrypi.com/camera/camera-v2-schematics.pdf
+ */
+
+#define CAM_DATA_LANES	1 2
+
+&{/} {
+	CAM_LABEL(imx219_xclk): CAM_LABEL(imx219_xclk) {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+	};
+};
+
+&CAM_I2C {
+	CAM_LABEL(imx219): sensor@10 {
+		compatible = "sony,imx219";
+		reg = <0x10>;
+
+		clocks = <&CAM_LABEL(imx219_xclk)>;
+		clock-names = "xclk";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&CAM_GPIO_PINCTRL>;
+		reset-gpios = <&CAM_GPIO_CTRL CAM_GPIO GPIO_ACTIVE_HIGH>;
+
+		port {
+			CAM_SENSOR_EP: endpoint {
+				remote-endpoint = <&CAM_RX_EP>;
+				link-frequencies = /bits/ 64 <456000000>;
+				clock-lanes = <0>;
+				data-lanes = <CAM_DATA_LANES>;
+			};
+		};
+	};
+};

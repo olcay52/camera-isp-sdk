@@ -1,0 +1,11 @@
+# T3 Foundation Gemstone Project [t3gemstone.org]
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+tasks:
+
+  test:
+    desc: Unit tests of the camera-isp-sdk tool
+    cmds:
+      - '{{ .PYTHON }} -m unittest discover -s tools -t tools'

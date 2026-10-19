@@ -1,0 +1,115 @@
+# T3 Foundation Gemstone Project [t3gemstone.org]
+# SPDX-License-Identifier: Apache-2.0
+#
+# Host-side build. 'task box' enters the build environment (Dockerfile,
+# through Distrobox); run the other tasks in it. 'task' lists the tasks;
+# SENSORS="imx477 ov5647" limits most of them to some sensors (default: all).
+
+version: '3'
+
+vars:
+  BOARD: '{{ .BOARD | default "t3-gem-o1" }}'
+  SENSORS: '{{ .SENSORS | default "" }}'
+  BUILD_DIR: '{{ .BUILD_DIR | default "build" }}'
+  PYTHON: '{{ .PYTHON | default "python3" }}'
+  CC: '{{ .CC | default "cc" }}'
+  CAMERA_ISP_SDK: './camera-isp-sdk --board {{ .BOARD }} --build-dir {{ .BUILD_DIR }}'
+  # A dcc_gen_linux downloaded by hand, for when git.ti.com is down
+  DCC_TOOLS_FROM: '{{ .DCC_TOOLS_FROM | default "" }}'
+  # Kernel tree and toolchain for out-of-tree drivers (task drivers)
+  KDIR: '{{ .KDIR | default "" }}'
+  ARCH: '{{ .ARCH | default "arm64" }}'
+  CROSS_COMPILE: '{{ .CROSS_COMPILE | default "aarch64-linux-gnu-" }}'
+  BOX: gemstone-camera-isp-sdk
+
+includes:
+  gst: gst
+  tools: tools
+
+tasks:
+
+  default:
+    silent: true
+    cmds:
+      - task --list-all --summary
+      - echo -e "\nEnvironment:\n"
+      - echo "  BOARD          = '{{ .BOARD }}'"
+      - echo "  SENSORS        = '{{ .SENSORS }}'"
+      - echo "  BUILD_DIR      = '{{ .BUILD_DIR }}'"
+      - echo "  DCC_TOOLS_FROM = '{{ .DCC_TOOLS_FROM }}'"
+      - echo "  KDIR           = '{{ .KDIR }}'"
+      - echo "  ARCH           = '{{ .ARCH }}'"
+      - echo "  CROSS_COMPILE  = '{{ .CROSS_COMPILE }}'"
+      - echo ""
+
+  box:
+    desc: Enter Distrobox's Ubuntu 22.04 image that has the build tools
+    cmds:
+      - distrobox-list | grep -q '{{ .BOX }}' || docker build -f Dockerfile -t {{ .BOX }}:latest .
+      - distrobox-assemble create --file distrobox.ini
+      - distrobox-enter --additional-flags "--tty" --name {{ .BOX }} --no-workdir
+
+  destroy:
+    prompt: This removes the build environment (its container and Docker image)... Do you want to continue?
+    desc: Destroy the Distrobox container and the Docker image of the build environment
+    cmds:
+      - distrobox stop {{ .BOX }} --yes || true
+      - distrobox rm {{ .BOX }} --force || true
+      - docker rmi {{ .BOX }} || true
+
+  validate:
+    desc: Check descriptors and DCC sources against the board
+    cmds:
+      - '{{ .CAMERA_ISP_SDK }} validate {{ .SENSORS }}'
+
+  dcc:
+    desc: Build DCC binaries (downloads TI's dcc_gen_linux once, or DCC_TOOLS_FROM=<file> installs one downloaded by hand)
+    cmds:
+      - '{{ .CAMERA_ISP_SDK }} dcc fetch-tools{{ if .DCC_TOOLS_FROM }} --from {{ .DCC_TOOLS_FROM }}{{ end }}'
+      - '{{ .CAMERA_ISP_SDK }} dcc build {{ .SENSORS }}'
+
+  overlays:
+    desc: Build device tree overlays
+    cmds:
+      - '{{ .CAMERA_ISP_SDK }} overlay build {{ .SENSORS }}'
+
+  build:
+    desc: Validate sensors, build DCC binaries and overlays
+    cmds:
+      - task: validate
+      - task: dcc
+      - task: overlays
+
+  package:
+    desc: Build, then pack the tarball to unpack over / on the board (build/camera-isp-sdk-<version>-<board>.tar.gz)
+    cmds:
+      - task: build
+      - '{{ .CAMERA_ISP_SDK }} package {{ .SENSORS }}'
+
+  check-overlays:
+    desc: Apply the overlays to BASE_DTB=<dtb> with fdtoverlay
+    requires:
+      vars:
+        - name: BASE_DTB
+    cmds:
+      - '{{ .CAMERA_ISP_SDK }} overlay check --base-dtb {{ .BASE_DTB }} {{ .SENSORS }}'
+
+  drivers:
+    desc: Cross-build the drivers the kernel lacks (sensors/<id>/driver) against KDIR=<kernel build dir>
+    preconditions:
+      # KDIR is always defined (empty by default), so 'requires' would not catch it
+      - sh: 'test -n "{{ .KDIR }}"'
+        msg: "set KDIR to the build tree of the board's kernel, e.g. task drivers KDIR=/path/to/kernel-build"
+    cmds:
+      - '{{ .CAMERA_ISP_SDK }} driver build --kdir {{ .KDIR }} --arch {{ .ARCH }} --cross-compile {{ .CROSS_COMPILE }} {{ .SENSORS }}'
+
+  test:
+    desc: Unit tests (Python tool and GStreamer descriptor parser)
+    cmds:
+      - task: tools:test
+      - task: gst:test
+
+  clean:
+    desc: Remove the build directory
+    cmds:
+      - rm -rf {{ .BUILD_DIR }}

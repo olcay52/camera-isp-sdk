@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.13.7/.schema/devbox.schema.json",
+  "packages": [
+    "distrobox@latest",
+    "go-task@latest"
+  ],
+  "shell": {
+    "init_hook": [
+      "if [ -n \"$BASH_VERSION\" ]; then eval \"$(devbox completion bash)\"; eval \"$(task --completion bash)\"; elif [ -n \"$ZSH_VERSION\" ]; then eval \"$(devbox completion zsh)\"; eval \"$(task --completion zsh)\"; fi",
+      "export PS1='📦 devbox:\\[\\033[01;34m\\]\\W\\[\\033[00m\\]> '"
+    ]
+  }
+}

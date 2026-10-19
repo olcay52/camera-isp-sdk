@@ -1,0 +1,303 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nazmi Aras <nazmi.aras@t3gemstone.org>
+Date: Tue, 13 Oct 2026 11:07:28 +0300
+Subject: [PATCH] tiovx: isp, ldc: support sensors described by camera-isp-sdk
+ descriptors
+
+tiovxisp and tiovxldc only work with the sensors hard-coded in
+gsttiovxisp.c and tiovx_sensor_module.c: the DCC ID, the AE dynamic
+parameters and the exposure/gain conversion are all selected by
+comparing sensor-name against a fixed list.
+
+When sensor-name matches a camera-isp-sdk sensor descriptor
+(sensor.conf, looked up in CAMERA_ISP_SDK_SENSOR_PATH), take the DCC ID
+and AE parameters from it and convert the 2A output with the
+descriptor's exposure and gain models. Line time is derived from the
+subdev's PIXEL_RATE, HBLANK and active width, so the conversion follows
+the selected sensor mode.
+
+Sensors without a descriptor keep using the built-in code paths.
+tiovx_init_sensor() only knows TI's sensors and prints "Invalid sensor
+name" for any other, so for a sensor with a descriptor it is run for a
+TI sensor to set its defaults and the descriptor's name and DCC ID
+replace that sensor's (camera_isp_sdk_tiovx.h). A sensor-name that is
+neither stops tiovxisp at start instead of running without a DCC ID.
+
+The descriptor parser lives in camera_isp_sdk_sensor.c, which is copied
+into ext/tiovx from the camera-isp-sdk repository before this patch is
+applied.
+---
+ ext/tiovx/camera_isp_sdk_tiovx.h | 31 ++++++++++
+ ext/tiovx/gsttiovxisp.c          | 97 +++++++++++++++++++++++++++++---
+ ext/tiovx/gsttiovxldc.c          | 21 ++++++-
+ ext/tiovx/meson.build            |  1 +
+ 4 files changed, 142 insertions(+), 8 deletions(-)
+ create mode 100644 ext/tiovx/camera_isp_sdk_tiovx.h
+
+diff --git a/ext/tiovx/camera_isp_sdk_tiovx.h b/ext/tiovx/camera_isp_sdk_tiovx.h
+new file mode 100644
+index 0000000..1cf91d8
+--- /dev/null
++++ b/ext/tiovx/camera_isp_sdk_tiovx.h
+@@ -0,0 +1,31 @@
++/* SPDX-License-Identifier: Apache-2.0 */
++/*
++ * TI sensor object setup for sensors described by camera-isp-sdk descriptors.
++ *
++ * Copyright (C) 2026 T3 Foundation
++ */
++
++#ifndef __CAMERA_ISP_SDK_TIOVX_H__
++#define __CAMERA_ISP_SDK_TIOVX_H__
++
++#include <stdio.h>
++
++#include "tiovx_sensor_module.h"
++
++/* tiovx_init_sensor() for a sensor with a descriptor. TI's function only
++ * accepts its built-in sensors and prints "Invalid sensor name" for any
++ * other, so it is run for one of them to set its defaults, then the
++ * descriptor's name and DCC ID replace that sensor's. */
++static inline vx_status
++camera_isp_sdk_init_sensor_obj (SensorObj * sensor_obj, const char *name,
++    int dcc_id)
++{
++  char ti_name[] = "SENSOR_SONY_IMX219_RPI";
++  vx_status status = tiovx_init_sensor (sensor_obj, ti_name);
++
++  snprintf (sensor_obj->sensor_name, ISS_SENSORS_MAX_NAME, "%s", name);
++  sensor_obj->sensorParams.dccId = dcc_id;
++  return status;
++}
++
++#endif /* __CAMERA_ISP_SDK_TIOVX_H__ */
+diff --git a/ext/tiovx/gsttiovxisp.c b/ext/tiovx/gsttiovxisp.c
+index 3686cae..bf740be 100644
+--- a/ext/tiovx/gsttiovxisp.c
++++ b/ext/tiovx/gsttiovxisp.c
+@@ -81,6 +81,9 @@
+ #include "tiovx_viss_module.h"
+ #include "ti_2a_wrapper.h"
+ 
++#include "camera_isp_sdk_sensor.h"
++#include "camera_isp_sdk_tiovx.h"
++
+ static const char default_tiovx_sensor_name[] = "SENSOR_SONY_IMX219_RPI";
+ #define GST_TYPE_TIOVX_ISP_TARGET (gst_tiovx_isp_target_get_type())
+ #define DEFAULT_TIOVX_ISP_TARGET TIVX_TARGET_VPAC_VISS1_ID
+@@ -605,6 +608,9 @@ struct _GstTIOVXISP
+ 
+   gint num_channels;
+   guint postprocess_iter;
++
++  /* Sensor described by a camera-isp-sdk descriptor, NULL for TI built-ins */
++  CameraIspSdkSensor *camera_isp_sdk_sensor;
+ };
+ 
+ GST_DEBUG_CATEGORY_STATIC (gst_tiovx_isp_debug);
+@@ -661,6 +667,9 @@ static void gst_tiovx_isp_map_2A_values (GstTIOVXISP * self, int exposure_time,
+     int analog_gain, gint32 * exposure_time_mapped,
+     gint32 * analog_gain_mapped);
+ 
++static void get_camera_isp_sdk_ae_dyn_params (const CameraIspSdkSensor * sensor,
++    IssAeDynamicParams * p_ae_dynPrms);
++
+ /* Initialize the plugin's class */
+ static void
+ gst_tiovx_isp_class_init (GstTIOVXISPClass * klass)
+@@ -706,7 +715,10 @@ gst_tiovx_isp_class_init (GstTIOVXISPClass * klass)
+           "                                   SENSOR_ONSEMI_AR0233_UB953_MARS\n"
+           "                                   SENSOR_SONY_IMX219_RPI\n"
+           "                                   SENSOR_OX05B1S\n"
+-          "                                   SENSOR_OV2312_UB953_LI",
++          "                                   SENSOR_OV2312_UB953_LI\n"
++          "                                   or the id of a camera-isp-sdk "
++          "sensor descriptor, looked up in CAMERA_ISP_SDK_SENSOR_PATH\n"
++          "                                   (default " CAMERA_ISP_SDK_SENSOR_PATH_DEFAULT ")",
+           NULL,
+           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+           GST_PARAM_MUTABLE_READY));
+@@ -826,6 +838,7 @@ gst_tiovx_isp_init (GstTIOVXISP * self)
+ 
+   self->num_channels = 0;
+   self->postprocess_iter = 0;
++  self->camera_isp_sdk_sensor = NULL;
+ 
+   for (i = 0; i < MAX_NUM_CHANNELS; i++) {
+     self->input_references[i] = NULL;
+@@ -845,6 +858,7 @@ gst_tiovx_isp_finalize (GObject * obj)
+   self->dcc_isp_config_file = NULL;
+   g_free (self->sensor_name);
+   self->sensor_name = NULL;
++  g_clear_pointer (&self->camera_isp_sdk_sensor, camera_isp_sdk_sensor_free);
+ 
+   if (NULL != self->aewb_memory) {
+     gst_memory_unref (self->aewb_memory);
+@@ -1021,6 +1035,7 @@ gst_tiovx_isp_init_module (GstTIOVXMiso * miso,
+   GstStructure *sink_caps_st = NULL;
+   GList *l = NULL;
+   const gchar *format_str = NULL;
++  GError *error = NULL;
+ 
+   g_return_val_if_fail (miso, FALSE);
+   g_return_val_if_fail (context, FALSE);
+@@ -1030,7 +1045,28 @@ gst_tiovx_isp_init_module (GstTIOVXMiso * miso,
+   self = GST_TIOVX_ISP (miso);
+ 
+   tiovx_querry_sensor (&self->sensor_obj);
+-  tiovx_init_sensor (&self->sensor_obj, self->sensor_name);
++
++  g_clear_pointer (&self->camera_isp_sdk_sensor, camera_isp_sdk_sensor_free);
++  self->camera_isp_sdk_sensor =
++      camera_isp_sdk_sensor_find (self->sensor_name, &error);
++  if (NULL != error) {
++    GST_ERROR_OBJECT (self, "Invalid sensor descriptor: %s", error->message);
++    g_clear_error (&error);
++    goto out;
++  }
++  if (NULL != self->camera_isp_sdk_sensor) {
++    GST_INFO_OBJECT (self, "Using sensor descriptor %s (DCC ID %d)",
++        self->camera_isp_sdk_sensor->path, self->camera_isp_sdk_sensor->dcc_id);
++    status = camera_isp_sdk_init_sensor_obj (&self->sensor_obj,
++        self->sensor_name, self->camera_isp_sdk_sensor->dcc_id);
++  } else {
++    status = tiovx_init_sensor (&self->sensor_obj, self->sensor_name);
++  }
++  if (VX_SUCCESS != status) {
++    GST_ERROR_OBJECT (self, "Unknown sensor-name '%s': not a TI sensor and "
++        "no camera-isp-sdk descriptor found", self->sensor_name);
++    goto out;
++  }
+   self->sensor_obj.num_cameras_enabled = num_channels;
+   self->sensor_obj.sensor_wdr_enabled = self->wdr_enabled;
+ 
+@@ -1848,7 +1884,10 @@ gst_tiovx_isp_postprocess (GstTIOVXMiso * miso)
+         sizeof (tivx_ae_awb_params_t), &aewb_buf_map_id,
+         (void **) &ae_awb_result, VX_WRITE_ONLY, VX_MEMORY_TYPE_HOST, 0);
+ 
+-    if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX390_UB953_D3") == 0) {
++    if (NULL != self->camera_isp_sdk_sensor) {
++      get_camera_isp_sdk_ae_dyn_params (self->camera_isp_sdk_sensor,
++          &sink_pad->sensor_in_data.ae_dynPrms);
++    } else if (g_strcmp0 (self->sensor_name, "SENSOR_SONY_IMX390_UB953_D3") == 0) {
+       get_imx390_ae_dyn_params (&sink_pad->sensor_in_data.ae_dynPrms);
+     } else if (g_strcmp0 (self->sensor_name, "SENSOR_OV2312_UB953_LI") == 0) {
+       get_ov2312_ae_dyn_params (&sink_pad->sensor_in_data.ae_dynPrms);
+@@ -1893,10 +1932,24 @@ gst_tiovx_isp_postprocess (GstTIOVXMiso * miso)
+         GST_ERROR_OBJECT (self, "Unable to open video device: %s", video_dev);
+         goto exit;
+       }
+-      gst_tiovx_isp_map_2A_values (self,
+-          sink_pad->sensor_out_data.aePrms.exposureTime[0],
+-          sink_pad->sensor_out_data.aePrms.analogGain[0],
+-          &coarse_integration_time, &analog_gain);
++      if (NULL != self->camera_isp_sdk_sensor) {
++        GError *error = NULL;
++
++        if (!camera_isp_sdk_sensor_map_2a (self->camera_isp_sdk_sensor, fd,
++                sink_pad->sensor_out_data.aePrms.exposureTime[0],
++                sink_pad->sensor_out_data.aePrms.analogGain[0],
++                &coarse_integration_time, &analog_gain, &error)) {
++          GST_ERROR_OBJECT (self, "Unable to map 2A values for %s: %s",
++              self->sensor_name, error->message);
++          g_clear_error (&error);
++          goto close_fd;
++        }
++      } else {
++        gst_tiovx_isp_map_2A_values (self,
++            sink_pad->sensor_out_data.aePrms.exposureTime[0],
++            sink_pad->sensor_out_data.aePrms.analogGain[0],
++            &coarse_integration_time, &analog_gain);
++      }
+ 
+       GST_LOG_OBJECT (sink_pad, "%s sensor specific exposure time: %d",
+           self->sensor_name, coarse_integration_time);
+@@ -1937,6 +1990,36 @@ exit:
+   return ret;
+ }
+ 
++static void
++get_camera_isp_sdk_ae_dyn_params (const CameraIspSdkSensor * sensor,
++    IssAeDynamicParams * p_ae_dynPrms)
++{
++  guint i = 0;
++
++  g_return_if_fail (sensor);
++  g_return_if_fail (p_ae_dynPrms);
++
++  p_ae_dynPrms->targetBrightnessRange.min = sensor->target_brightness_min;
++  p_ae_dynPrms->targetBrightnessRange.max = sensor->target_brightness_max;
++  p_ae_dynPrms->targetBrightness = sensor->target_brightness;
++  p_ae_dynPrms->threshold = sensor->threshold;
++  p_ae_dynPrms->enableBlc = sensor->enable_blc;
++  p_ae_dynPrms->exposureTimeStepSize = sensor->exposure_step;
++
++  for (i = 0; i < sensor->n_ae_ranges && i < MAX_AE_DYN_PARAMS; i++) {
++    const CameraIspSdkAeRange *range = &sensor->ae_ranges[i];
++
++    p_ae_dynPrms->exposureTimeRange[i].min = range->exposure_min_us;
++    p_ae_dynPrms->exposureTimeRange[i].max = range->exposure_max_us;
++    p_ae_dynPrms->analogGainRange[i].min = range->again_min;
++    p_ae_dynPrms->analogGainRange[i].max = range->again_max;
++    p_ae_dynPrms->digitalGainRange[i].min = range->dgain_min;
++    p_ae_dynPrms->digitalGainRange[i].max = range->dgain_max;
++  }
++
++  p_ae_dynPrms->numAeDynParams = i;
++}
++
+ /* Typically this is obtained by querying the sensor */
+ static int32_t
+ get_imx219_ae_dyn_params (IssAeDynamicParams * p_ae_dynPrms)
+diff --git a/ext/tiovx/gsttiovxldc.c b/ext/tiovx/gsttiovxldc.c
+index 4b3463b..ff2e981 100644
+--- a/ext/tiovx/gsttiovxldc.c
++++ b/ext/tiovx/gsttiovxldc.c
+@@ -72,6 +72,9 @@
+ 
+ #include "tiovx_ldc_module.h"
+ 
++#include "camera_isp_sdk_sensor.h"
++#include "camera_isp_sdk_tiovx.h"
++
+ #define GST_TYPE_TIOVX_LDC_TARGET (gst_tiovx_ldc_target_get_type())
+ #define DEFAULT_TIOVX_LDC_TARGET TIVX_TARGET_VPAC_LDC_ID
+ #define MAX_SRC_PADS 1
+@@ -630,8 +633,24 @@ gst_tiovx_ldc_init_module (GstTIOVXSimo * simo,
+   }
+ 
+   if (NULL != self->dcc_config_file) {
++    GError *error = NULL;
++    CameraIspSdkSensor *camera_isp_sdk_sensor =
++        camera_isp_sdk_sensor_find (self->sensor_name, &error);
++
+     ldc->ldc_mode = TIOVX_MODULE_LDC_OP_MODE_DCC_DATA;
+-    status = tiovx_init_sensor (sensorObj, self->sensor_name);
++    if (NULL != camera_isp_sdk_sensor) {
++      GST_INFO_OBJECT (self, "Using sensor descriptor %s (DCC ID %d)",
++          camera_isp_sdk_sensor->path, camera_isp_sdk_sensor->dcc_id);
++      status = camera_isp_sdk_init_sensor_obj (sensorObj, self->sensor_name,
++          camera_isp_sdk_sensor->dcc_id);
++      camera_isp_sdk_sensor_free (camera_isp_sdk_sensor);
++    } else if (NULL != error) {
++      GST_ERROR_OBJECT (self, "Invalid sensor descriptor: %s", error->message);
++      g_clear_error (&error);
++      status = VX_FAILURE;
++    } else {
++      status = tiovx_init_sensor (sensorObj, self->sensor_name);
++    }
+     if (VX_SUCCESS != status) {
+       GST_ERROR_OBJECT (self, "tiovx init sensor error: %d", status);
+       goto out;
+diff --git a/ext/tiovx/meson.build b/ext/tiovx/meson.build
+index d7d538e..4cd5e61 100644
+--- a/ext/tiovx/meson.build
++++ b/ext/tiovx/meson.build
+@@ -12,6 +12,7 @@ gst_tiovx_plugin_sources = [
+   'gsttiovxmux.c',
+   'gsttiovxpyramid.c',
+   'gsttiovxdlcolorconvert.c',
++  'camera_isp_sdk_sensor.c',
+ ]
+ 
+ if SOC == 'j721e' or SOC == 'j721s2' or SOC == 'j784s4' or SOC == 'j722s'

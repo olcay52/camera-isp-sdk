@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * @NAME@
+ *
+ * Sensor fragment of the device tree overlay, written against the port
+ * macros of boards/<board>/<port>.h (CAM_I2C, CAM_GPIO_CTRL, CAM_GPIO,
+ * CAM_GPIO_PINCTRL, ...). CAM_LABEL(x) makes labels unique per port.
+ * Check the driver's DT binding for the exact properties. TODO marks
+ * what to adapt.
+ */
+
+/* TODO: data lanes used by the sensor */
+#define CAM_DATA_LANES	1 2
+/* Uncomment if the sensor uses a non-continuous CSI-2 clock */
+/* #define CAM_CLOCK_NONCONTINUOUS */
+
+&{/} {
+	/* TODO: the frequency of the module's oscillator */
+	CAM_LABEL(@ID@_xclk): CAM_LABEL(@ID@_xclk) {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+	};
+};
+
+&CAM_I2C {
+	/* TODO: compatible string and 7-bit I2C address */
+	CAM_LABEL(@ID@): sensor@10 {
+		compatible = "vendor,@ID@";
+		reg = <0x10>;
+
+		clocks = <&CAM_LABEL(@ID@_xclk)>;
+		clock-names = "xclk";
+
+		/* CAM_GPIO powers Raspberry Pi style modules up */
+		pinctrl-names = "default";
+		pinctrl-0 = <&CAM_GPIO_PINCTRL>;
+		reset-gpios = <&CAM_GPIO_CTRL CAM_GPIO GPIO_ACTIVE_HIGH>;
+
+		port {
+			CAM_SENSOR_EP: endpoint {
+				remote-endpoint = <&CAM_RX_EP>;
+				/* TODO: must match [csi] link-frequency */
+				link-frequencies = /bits/ 64 <456000000>;
+				clock-lanes = <0>;
+				data-lanes = <CAM_DATA_LANES>;
+			};
+		};
+	};
+};

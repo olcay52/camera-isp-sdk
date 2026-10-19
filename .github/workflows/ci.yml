@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 T3 Foundation
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      # Runs a command in the build environment of 'task box' (Dockerfile)
+      BOX: >-
+        docker run --rm -v ${{ github.workspace }}:/home/workdir -w /home/workdir
+        -v /tmp/dcc-tools:/dcc-tools -e CAMERA_ISP_SDK_DCC_TOOLS=/dcc-tools gemstone-camera-isp-sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the build environment
+        run: docker build -t gemstone-camera-isp-sdk .
+
+      - name: Unit tests
+        run: $BOX task test
+
+      # git.ti.com is often unavailable for a while; keep the verified tool.
+      # The key must follow TI_IMAGING_REF in tools/camera_isp_sdk/dcc.py.
+      - name: Cache TI's dcc_gen_linux
+        uses: actions/cache@v4
+        with:
+          path: /tmp/dcc-tools
+          key: dcc-tools-REL.IMAGING.11.00.00.00
+
+      # Validates the sensors, builds DCC binaries and overlays, then packs
+      - name: Build and package
+        run: $BOX task package
+
+      - name: Check the plugin patch against TI's tree
+        run: $BOX task gst:check-patch
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: camera-isp-sdk-${{ github.sha }}
+          path: |
+            build/camera-isp-sdk-*.tar.gz
+            build/dcc/
+            build/overlays/*.dtbo
+          if-no-files-found: error

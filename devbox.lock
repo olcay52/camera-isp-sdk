@@ -1,0 +1,75 @@
+{
+  "lockfile_version": "1",
+  "packages": {
+    "distrobox@latest": {
+      "last_modified": "2026-10-14T08:20:44Z",
+      "resolved": "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a#distrobox",
+      "source": "devbox-search",
+      "version": "1.8.2.5",
+      "systems": {
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/l319r0ik2d2ybpnws4lpb45z1q9yddnr-distrobox-1.8.2.5",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/l319r0ik2d2ybpnws4lpb45z1q9yddnr-distrobox-1.8.2.5"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/fr3n5rp4sacyn71rvg019003vr8j6m4x-distrobox-1.8.2.5",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/fr3n5rp4sacyn71rvg019003vr8j6m4x-distrobox-1.8.2.5"
+        }
+      }
+    },
+    "github:NixOS/nixpkgs/nixpkgs-unstable": {
+      "last_modified": "2026-10-14T08:20:44Z",
+      "resolved": "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a?lastModified=1791966044&narHash=sha256-t1hT8UW97rFCWCJO7%2FpClvu0AhLN5V3uir2M0ic4w%2FQ%3D"
+    },
+    "go-task@latest": {
+      "last_modified": "2026-10-14T08:20:44Z",
+      "resolved": "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a#go-task",
+      "source": "devbox-search",
+      "version": "3.53.1",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/mp3m86aziykrwshmqfr7i6w4ak4c8qz4-go-task-3.53.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/mp3m86aziykrwshmqfr7i6w4ak4c8qz4-go-task-3.53.1"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/mwy1kwfwgq3diqxqkrkj8qbhrsr8xa4x-go-task-3.53.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/mwy1kwfwgq3diqxqkrkj8qbhrsr8xa4x-go-task-3.53.1"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/3gax8wb82c05afr6bsi56ighadlzaqkc-go-task-3.53.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/3gax8wb82c05afr6bsi56ighadlzaqkc-go-task-3.53.1"
+        }
+      }
+    }
+  }
+}

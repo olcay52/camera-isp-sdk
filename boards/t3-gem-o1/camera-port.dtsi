@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * T3 Gemstone O1 camera port plumbing, shared by all sensors.
+ *
+ * Included after the sensor fragment, which must define CAM_DATA_LANES and
+ * a sensor endpoint labelled CAM_SENSOR_EP. Defining CAM_CLOCK_NONCONTINUOUS
+ * marks the CSI-2 clock lane as non-continuous on the receiver side too.
+ *
+ * Copyright (C) 2026 T3 Foundation
+ */
+
+#ifndef CAM_DATA_LANES
+#error "the sensor overlay fragment must define CAM_DATA_LANES"
+#endif
+
+&CAM_I2C {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&CAM_I2C_PINCTRL>;
+	clock-frequency = <CAM_I2C_FREQ>;
+};
+
+&CAM_GPIO_CTRL {
+	status = "okay";
+};
+
+&CAM_CSI_BRIDGE {
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			status = "okay";
+
+			CAM_RX_EP: endpoint {
+				remote-endpoint = <&CAM_SENSOR_EP>;
+				bus-type = <4>; /* MIPI CSI-2 D-PHY */
+				clock-lanes = <0>;
+				data-lanes = <CAM_DATA_LANES>;
+#ifdef CAM_CLOCK_NONCONTINUOUS
+				clock-noncontinuous;
+#endif
+			};
+		};
+	};
+};
+
+&CAM_CSI_RX {
+	status = "okay";
+};
+
+&CAM_DPHY {
+	status = "okay";
+};
+
+#ifdef CAM_PORT_MIPI_SWITCH
+&mipi_switch {
+	oe-pin {
+		default-state = "off";
+	};
+
+	sel-pin {
+		default-state = "on";
+	};
+};
+#endif

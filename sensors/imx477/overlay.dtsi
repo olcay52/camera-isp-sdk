@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Sony IMX477 (Raspberry Pi HQ Camera).
+ *
+ * The module has its own 24 MHz oscillator and regulators; the connector's
+ * CAM_GPIO pin enables them, which the driver drives as "reset".
+ * Binding: Documentation/devicetree/bindings/media/i2c/imx477.yaml in the
+ * Raspberry Pi kernel.
+ */
+
+#define CAM_DATA_LANES	1 2
+
+&{/} {
+	CAM_LABEL(imx477_xclk): CAM_LABEL(imx477_xclk) {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+	};
+};
+
+&CAM_I2C {
+	CAM_LABEL(imx477): sensor@1a {
+		compatible = "sony,imx477";
+		reg = <0x1a>;
+
+		clocks = <&CAM_LABEL(imx477_xclk)>;
+		clock-names = "xclk";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&CAM_GPIO_PINCTRL>;
+		reset-gpios = <&CAM_GPIO_CTRL CAM_GPIO GPIO_ACTIVE_HIGH>;
+
+		port {
+			CAM_SENSOR_EP: endpoint {
+				remote-endpoint = <&CAM_RX_EP>;
+				/* D-PHY timings are tuned for 450 MHz, others use auto */
+				link-frequencies = /bits/ 64 <450000000>;
+				clock-lanes = <0>;
+				data-lanes = <CAM_DATA_LANES>;
+			};
+		};
+	};
+};

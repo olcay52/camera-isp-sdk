@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * OmniVision OV5647 (Raspberry Pi Camera v1.3 and compatible modules).
+ *
+ * The module has its own 25 MHz oscillator (the only rate the driver
+ * accepts) and regulators, which the connector's CAM_GPIO pin enables.
+ * The 6.12 driver has no regulator support, so that pin is its "pwdn"
+ * line: asserted (low) keeps the module off.
+ * Binding: Documentation/devicetree/bindings/media/i2c/ovti,ov5647.yaml
+ */
+
+#define CAM_DATA_LANES	1 2
+#define CAM_CLOCK_NONCONTINUOUS
+
+&{/} {
+	CAM_LABEL(ov5647_xclk): CAM_LABEL(ov5647_xclk) {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <25000000>;
+	};
+};
+
+&CAM_I2C {
+	CAM_LABEL(ov5647): sensor@36 {
+		compatible = "ovti,ov5647";
+		reg = <0x36>;
+
+		clocks = <&CAM_LABEL(ov5647_xclk)>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&CAM_GPIO_PINCTRL>;
+		pwdn-gpios = <&CAM_GPIO_CTRL CAM_GPIO GPIO_ACTIVE_LOW>;
+
+		port {
+			CAM_SENSOR_EP: endpoint {
+				remote-endpoint = <&CAM_RX_EP>;
+				/*
+				 * Not read by the driver; the receiver derives the
+				 * same rate from PIXEL_RATE (sensor.conf [csi])
+				 */
+				link-frequencies = /bits/ 64 <204166750>;
+				clock-lanes = <0>;
+				data-lanes = <CAM_DATA_LANES>;
+				clock-noncontinuous;
+			};
+		};
+	};
+};

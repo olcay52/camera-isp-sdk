@@ -1,0 +1,48 @@
+# T3 Foundation Gemstone Project [t3gemstone.org]
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+vars:
+  # The edgeai-gst-plugins commit the patch is made for; build.sh checks it out
+  GST_PLUGINS_REV:
+    sh: sed -n 's/^GST_PLUGINS_REV="\(.*\)"$/\1/p' "{{ .ROOT_DIR }}/gst/build.sh"
+  GST_PLUGINS_URL: https://github.com/TexasInstruments/edgeai-gst-plugins.git
+  TEST_BIN: '{{ .BUILD_DIR }}/test_camera_isp_sdk_sensor'
+
+tasks:
+
+  test-build:
+    internal: true
+    sources:
+      - gst/src/camera_isp_sdk_sensor.c
+      - gst/src/camera_isp_sdk_sensor.h
+      - gst/tests/test_camera_isp_sdk_sensor.c
+    generates:
+      - '{{ .TEST_BIN }}'
+    cmds:
+      - mkdir -p {{ .BUILD_DIR }}
+      - >
+        {{ .CC }} -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Werror -Igst/src
+        gst/src/camera_isp_sdk_sensor.c gst/tests/test_camera_isp_sdk_sensor.c -o {{ .TEST_BIN }}
+        $(pkg-config --cflags --libs glib-2.0) -lm
+
+  test:
+    desc: Descriptor parser unit tests, loading every shipped sensor
+    deps: [test-build]
+    cmds:
+      - '{{ .TEST_BIN }} sensors'
+
+  check-patch:
+    desc: Check that the plugin patch applies to TI's tree at the pinned commit
+    cmds:
+      - |
+        tmp=$(mktemp -d)
+        trap 'rm -rf "$tmp"' EXIT
+        git clone --quiet {{ .GST_PLUGINS_URL }} "$tmp"
+        git -C "$tmp" checkout --quiet {{ .GST_PLUGINS_REV }}
+        cp gst/src/camera_isp_sdk_sensor.[ch] "$tmp/ext/tiovx/"
+        for patch in gst/patches/*.patch; do
+          git -C "$tmp" apply --check "$PWD/$patch"
+        done
+        echo "gst/patches apply to edgeai-gst-plugins {{ .GST_PLUGINS_REV }}"
