@@ -15,6 +15,8 @@
  *  - The 2028 and 1332 pixel wide modes are digitally cropped to 1920x1080,
  *    2016x1520 and 1328x990. The j721e-csi2rx DMA needs widths that are a
  *    multiple of 8 pixels for RAW10/RAW12, otherwise link validation fails.
+ *  - IMX477_XCLR_MIN_DELAY_US is raised from the datasheet's 8ms to 500ms;
+ *    see the comment on the define.
  * Copyright (C) 2026 T3 Foundation
  */
 #include <linux/unaligned.h>
@@ -1018,6 +1020,12 @@ static const char * const imx477_supply_name[] = {
  *
  * Note, that delay between XCLR low->high and reading the CCI ID register (T6
  * in the datasheet) is much smaller - 600us.
+ *
+ * Raised from the datasheet's 8ms on the T3 Gemstone O1: with 8ms the first
+ * register write of imx477_start_streaming() fails with -EREMOTEIO. The
+ * regulators are not described in the device tree, so the driver has no
+ * supply-ready signal to wait on and the delay has to cover the whole
+ * power-up. Values between 8ms and 500ms were not tested.
  */
 #define IMX477_XCLR_MIN_DELAY_US	500000
 #define IMX477_XCLR_DELAY_RANGE_US	1000
